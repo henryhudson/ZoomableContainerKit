@@ -59,26 +59,21 @@ struct ZoomMathAnchorClampTests {
         #expect(r.targetOffsetY == -200)
     }
 
-    @Test("content taller than the anchor clamps offset into the hand-wall range")
-    func tallerClampsRange() {
-        // contentH 1000, anchorY 600 → floor offset 400 (1000-600),
-        // ceiling 700 (1000-300). A request below the floor clamps up to 400.
-        let low = ZoomMath.anchorClamp(contentH: 1000, boundsH: 800, anchorY: 600, currentOffsetY: 0)
-        #expect(!low.isPinnedAtFloor)
-        #expect(low.targetOffsetY == 400)          // clamped up to the floor
-        // A request above the ceiling clamps down to 700.
-        let high = ZoomMath.anchorClamp(contentH: 1000, boundsH: 800, anchorY: 600, currentOffsetY: 9999)
-        #expect(high.targetOffsetY == 700)
-        // In-range passes through.
-        let mid = ZoomMath.anchorClamp(contentH: 1000, boundsH: 800, anchorY: 600, currentOffsetY: 550)
-        #expect(mid.targetOffsetY == 550)
+    @Test("content taller than the anchor pins the bottom on the divider (no lift)")
+    func tallerPinsBottom() {
+        // contentH 1000, anchorY 600 → bottom on the divider ⇒ offset 400.
+        // Any requested offset is clamped to exactly 400 — no upward drift.
+        let pinned: CGFloat = 1000 - 600
+        #expect(ZoomMath.anchorClamp(contentH: 1000, boundsH: 800, anchorY: 600, currentOffsetY: 0).targetOffsetY == pinned)
+        #expect(ZoomMath.anchorClamp(contentH: 1000, boundsH: 800, anchorY: 600, currentOffsetY: 9999).targetOffsetY == pinned)
+        #expect(ZoomMath.anchorClamp(contentH: 1000, boundsH: 800, anchorY: 600, currentOffsetY: 550).targetOffsetY == pinned)
     }
 
-    @Test("bottomInset accommodates the ceiling, not the floor (upward-pan range)")
-    func bottomInsetForCeiling() {
-        // boundsH 800, anchorY 600 → ceiling 300 → bottomInset 800-300 = 500.
-        let r = ZoomMath.anchorClamp(contentH: 1000, boundsH: 800, anchorY: 600, currentOffsetY: 500)
-        #expect(r.bottomInset == 500)
+    @Test("bottomInset covers the viewport area below the anchor line")
+    func bottomInsetCoversGap() {
+        // boundsH 800, anchorY 600 → bottomInset 800-600 = 200.
+        let r = ZoomMath.anchorClamp(contentH: 1000, boundsH: 800, anchorY: 600, currentOffsetY: 400)
+        #expect(r.bottomInset == 200)
     }
 }
 

@@ -50,29 +50,28 @@ public enum ZoomMath {
         let isPinnedAtFloor: Bool
     }
 
-    /// Pure math for the bottom-anchor enforcement. Two regimes:
+    /// Pure math for the bottom-anchor enforcement. The content's bottom is
+    /// PINNED to the anchor line — it can neither drift above it (a gap of
+    /// backdrop above the divider reads as broken) nor below. Two regimes:
     ///
     /// 1. **Content shorter than anchor**: stretch `topInset` to push the
-    ///    content's bottom down to `anchorY`; `targetOffsetY = -topInset`.
-    /// 2. **Content taller than anchor**: clamp `contentOffset.y` into
-    ///    `[contentH - anchorY, contentH - anchorY * 0.5]`. The floor is
-    ///    "content bottom at the anchor line"; the ceiling lets the user
-    ///    lift the content until its bottom sits halfway up the play area.
+    ///    content's bottom down onto `anchorY`; `targetOffsetY = -topInset`.
+    /// 2. **Content taller than anchor**: fix `contentOffset.y` at
+    ///    `contentH - anchorY` (bottom exactly on the anchor); vertical pan
+    ///    is not offered — the camera changes altitude by zoom, not by
+    ///    sliding the table up.
     static func anchorClamp(
         contentH: CGFloat,
         boundsH: CGFloat,
         anchorY: CGFloat,
         currentOffsetY: CGFloat
     ) -> AnchorClampResult {
-        let bottomFloorY = anchorY
-        let bottomCeilY = anchorY * 0.5
-        // bottomInset must accommodate the CEILING, not the floor — else
-        // UIScrollView's natural max scroll collapses onto the floor and
-        // the upward-pan range stops working.
-        let bottomInset = Swift.max(0, boundsH - bottomCeilY)
+        // Covers the viewport area below the anchor so the scroll view's
+        // natural offset range permits the pinned position.
+        let bottomInset = Swift.max(0, boundsH - anchorY)
 
-        if contentH < bottomFloorY {
-            let topInset = bottomFloorY - contentH
+        if contentH < anchorY {
+            let topInset = anchorY - contentH
             return AnchorClampResult(
                 topInset: topInset,
                 bottomInset: bottomInset,
@@ -81,13 +80,11 @@ public enum ZoomMath {
             )
         }
 
-        let offsetYMin = contentH - bottomFloorY    // bottom at floor
-        let offsetYMax = contentH - bottomCeilY     // bottom at ceiling
-        let clampedY = Swift.max(offsetYMin, Swift.min(offsetYMax, currentOffsetY))
+        // Taller: pin the bottom on the anchor — offset is fixed, not a range.
         return AnchorClampResult(
             topInset: 0,
             bottomInset: bottomInset,
-            targetOffsetY: clampedY,
+            targetOffsetY: contentH - anchorY,
             isPinnedAtFloor: false
         )
     }
