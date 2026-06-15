@@ -9,13 +9,15 @@
 //  fit-zoom math, the drone-camera bottom-anchor clamp, the two-finger
 //  pinch veto, and the deterministic double-tap rect.
 //
-//  Internal, not public: the apps reach this only through `ZoomableContainer`.
-//  Tests use `@testable import ZoomableContainerKit`.
+//  Mostly internal — the apps reach the gesture math only through
+//  `ZoomableContainer`. `fitZoom` is public because hosts legitimately reuse
+//  the contain-fit formula for their own layout (e.g. sizing a hand region to
+//  the camera's zoom floor). Tests use `@testable import ZoomableContainerKit`.
 //
 
 import CoreGraphics
 
-enum ZoomMath {
+public enum ZoomMath {
 
     // MARK: - Fit zoom
 
@@ -23,7 +25,7 @@ enum ZoomMath {
     /// entirely inside `viewport` — both axes. `min` of the two axis
     /// ratios (the limiting axis fills exactly, the other gets margin).
     /// Contrast "cover" (`max`), which fills one axis and crops the other.
-    static func fitZoom(content: CGSize, viewport: CGSize) -> CGFloat {
+    public static func fitZoom(content: CGSize, viewport: CGSize) -> CGFloat {
         guard content.width > 0, content.height > 0 else { return 1 }
         return Swift.min(viewport.width / content.width,
                          viewport.height / content.height)

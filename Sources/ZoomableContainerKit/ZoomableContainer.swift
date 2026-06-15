@@ -75,11 +75,15 @@ public struct ZoomableContainer<Content: View>: UIViewRepresentable {
             scrollView.contentInsetAdjustmentBehavior = .never
         }
         // Per-element drag surface: forward single-finger touches to child
-        // SwiftUI gestures immediately (the empty-table scroll pan is gated
-        // by panVeto at shouldBegin instead of via UIKit's reclaim).
+        // SwiftUI gestures immediately (low-latency card drags). We must NOT
+        // set canCancelContentTouches=false — the built-in pinch needs to
+        // cancel content touches to take over and zoom, and disabling that
+        // kills pinch outright. Single-finger drags are instead protected
+        // from the scroll pan by panVeto at shouldBegin (finger-count
+        // independent), so leaving canCancelContentTouches at its default
+        // (true) gives working pinch AND working drags.
         if hooks.panVeto != nil {
             scrollView.delaysContentTouches = false
-            scrollView.canCancelContentTouches = false
         }
         scrollView.panVeto = hooks.panVeto
         scrollView.hitTestBypass = hooks.hitTestBypass
