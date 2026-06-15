@@ -16,9 +16,11 @@ import CoreGraphics
 public struct ZoomConfig: Sendable {
     /// Absolute upper zoom bound (1.0 = unscaled content pixels).
     public var maxZoom: CGFloat
-    /// Caller floor. Combined with the dynamic fit-zoom via `max`, so the
-    /// effective minimum is whichever is higher — the user can never zoom
-    /// out past "content fills the play area."
+    /// Additional caller floor, combined with the dynamic fit-zoom via
+    /// `max`, so the effective minimum is whichever is higher — the user can
+    /// never zoom out past "content fills the play area." Default `0` means
+    /// fit-zoom is the only floor (the free-floating case); a drone camera
+    /// passes a higher value to tighten it.
     public var minZoom: CGFloat
     /// Scale applied at first valid layout. `nil` (default) starts at the
     /// fit-zoom (whole content visible) — the free-floating case. A value
@@ -49,7 +51,7 @@ public struct ZoomConfig: Sendable {
 
     public init(
         maxZoom: CGFloat = 3.0,
-        minZoom: CGFloat = 0.25,
+        minZoom: CGFloat = 0,
         initialZoom: CGFloat? = nil,
         doubleTapEnabled: Bool = true,
         doubleTapZoomMultiplier: CGFloat = 2.5,
