@@ -31,17 +31,22 @@ public struct ZoomableContainer<Content: View>: UIViewRepresentable {
     public let contentSize: CGSize
     public var config: ZoomConfig
     public var hooks: ZoomHooks
+    /// When this value changes (after the first layout), the camera re-frames
+    /// to `config.initialZoom` — e.g. resetting framing on entering a match.
+    public var refitKey: AnyHashable?
     @ViewBuilder public var content: () -> Content
 
     public init(
         contentSize: CGSize,
         config: ZoomConfig = ZoomConfig(),
         hooks: ZoomHooks = ZoomHooks(),
+        refitKey: AnyHashable? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.contentSize = contentSize
         self.config = config
         self.hooks = hooks
+        self.refitKey = refitKey
         self.content = content
     }
 
@@ -112,6 +117,8 @@ public struct ZoomableContainer<Content: View>: UIViewRepresentable {
         context.coordinator.hostingController = hosting
 
         sync(context.coordinator)
+        context.coordinator.seenRefitKey = refitKey
+        context.coordinator.hasSeenRefitKey = true
 
         scrollView.onFirstValidLayout = { [weak scrollView, weak coordinator = context.coordinator] in
             guard let scrollView, let coordinator else { return }
@@ -135,6 +142,15 @@ public struct ZoomableContainer<Content: View>: UIViewRepresentable {
         if currentSize != hostedSize {
             context.coordinator.hostedView?.frame = CGRect(origin: .zero, size: hostedSize)
             scrollView.contentSize = contentSize
+            context.coordinator.hasSetInitialZoom = false
+        }
+
+        // Re-fit on a refitKey transition (after the makeUIView seed), unless
+        // a pinch is in flight — never yank the user's zoom mid-gesture.
+        if context.coordinator.hasSeenRefitKey,
+           context.coordinator.seenRefitKey != refitKey,
+           !context.coordinator.isPinching {
+            context.coordinator.seenRefitKey = refitKey
             context.coordinator.hasSetInitialZoom = false
         }
 

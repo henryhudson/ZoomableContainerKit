@@ -24,6 +24,14 @@ extension ZoomableContainer {
         var hostingController: UIHostingController<Content>?
         var hasSetInitialZoom = false
 
+        // Re-fit support: a change in the container's `refitKey` (once seen)
+        // resets `hasSetInitialZoom` so the camera re-frames.
+        var seenRefitKey: AnyHashable?
+        var hasSeenRefitKey = false
+        /// True while a pinch the arbitrator accepted is in flight — guards
+        /// the refit transition from yanking the user's zoom mid-gesture.
+        var isPinching = false
+
         // Mirrored from the container on every update.
         var config = ZoomConfig()
         var hooks = ZoomHooks()
@@ -195,9 +203,11 @@ extension ZoomableContainer {
         @objc func handleArbitratorPinch(_ gesture: UIPinchGestureRecognizer) {
             switch gesture.state {
             case .began:
+                isPinching = true
                 if config.hapticsAtLimits { limitHaptic.prepare() }
                 hasPulsedAtLimit = false
             case .ended, .cancelled, .failed:
+                isPinching = false
                 hasPulsedAtLimit = false
             default:
                 break
