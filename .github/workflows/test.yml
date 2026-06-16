@@ -1,0 +1,68 @@
+name: ZoomableContainerKit Tests
+
+# The package's own coverage lives here, in its own repo's CI — the host apps
+# (Hansard, DaDeckOfCards) only BUILD against the resolved package, so their CI
+# never runs the 21 ZoomMath unit tests. Runs on GitHub-hosted macOS (this repo
+# is public → free minutes) so it doesn't depend on the apps' self-hosted runner.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pick the newest available iPhone simulator rather than hardcoding a
+      # model, so the job survives GitHub runner-image updates that retire
+      # device names. The package deploys to iOS 16 but runs fine on a newer
+      # simulator (deployment target is a floor, not a pin).
+      - name: Pick a simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys, re
+          data = json.load(sys.stdin)["devices"]
+          best = None  # ((version, name_len), udid)
+          for rk, devs in data.items():
+              m = re.search(r"iOS-(\d+)-(\d+)", rk)
+              if not m:
+                  continue
+              version = (int(m.group(1)), int(m.group(2)))
+              for d in devs:
+                  if not d.get("isAvailable"):
+                      continue
+                  name = d.get("name", "")
+                  if not name.startswith("iPhone"):
+                      continue
+                  key = (version, len(name))
+                  if best is None or key > best[0]:
+                      best = (key, d["udid"])
+          if best is None:
+              sys.exit("no available iPhone simulator found")
+          print(best[1])
+          ')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          echo "Using simulator id=$udid"
+
+      - name: Test
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -scheme ZoomableContainerKit \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            2>&1 | tee build.log
+          # Guard against a silent "0 tests passed": require positive evidence
+          # the suite actually ran (Swift Testing prints "Test run with N tests").
+          COUNT=$(grep -oE 'Test run with [0-9]+ test|Executed [0-9]+ test' build.log | grep -oE '[0-9]+' | sort -rn | head -1 || true)
+          if [ -z "$COUNT" ] || [ "$COUNT" -eq 0 ]; then
+            echo "::error::No tests executed (0 tests)."
+            exit 1
+          fi
+          echo "::notice::$COUNT tests executed."
