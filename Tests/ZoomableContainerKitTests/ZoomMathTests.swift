@@ -52,27 +52,26 @@ struct ZoomMathFitZoomTests {
 struct ZoomMathAnchorClampTests {
     @Test("content shorter than the anchor pins at the floor via topInset")
     func shorterPinsAtFloor() {
-        // contentH 300, anchorY 500 → topInset 200, offset -200, pinned.
-        let r = ZoomMath.anchorClamp(contentH: 300, boundsH: 800, anchorY: 500, currentOffsetY: 0)
-        #expect(r.isPinnedAtFloor)
+        // contentH 300, anchorY 500 → topInset 200, offset -200.
+        let r = ZoomMath.anchorClamp(contentH: 300, boundsH: 800, anchorY: 500)
         #expect(r.topInset == 200)
-        #expect(r.targetOffsetY == -200)
+        #expect(r.targetOffsetY == -r.topInset)
     }
 
     @Test("content taller than the anchor pins the bottom on the divider (no lift)")
     func tallerPinsBottom() {
-        // contentH 1000, anchorY 600 → bottom on the divider ⇒ offset 400.
-        // Any requested offset is clamped to exactly 400 — no upward drift.
+        // contentH 1000, anchorY 600 → bottom on the divider ⇒ offset 400,
+        // and no topInset (the bottom is the sole anchor).
+        let r = ZoomMath.anchorClamp(contentH: 1000, boundsH: 800, anchorY: 600)
         let pinned: CGFloat = 1000 - 600
-        #expect(ZoomMath.anchorClamp(contentH: 1000, boundsH: 800, anchorY: 600, currentOffsetY: 0).targetOffsetY == pinned)
-        #expect(ZoomMath.anchorClamp(contentH: 1000, boundsH: 800, anchorY: 600, currentOffsetY: 9999).targetOffsetY == pinned)
-        #expect(ZoomMath.anchorClamp(contentH: 1000, boundsH: 800, anchorY: 600, currentOffsetY: 550).targetOffsetY == pinned)
+        #expect(r.targetOffsetY == pinned)
+        #expect(r.topInset == 0)
     }
 
     @Test("bottomInset covers the viewport area below the anchor line")
     func bottomInsetCoversGap() {
         // boundsH 800, anchorY 600 → bottomInset 800-600 = 200.
-        let r = ZoomMath.anchorClamp(contentH: 1000, boundsH: 800, anchorY: 600, currentOffsetY: 400)
+        let r = ZoomMath.anchorClamp(contentH: 1000, boundsH: 800, anchorY: 600)
         #expect(r.bottomInset == 200)
     }
 }
@@ -160,5 +159,61 @@ struct ZoomMathDoubleTapRectTests {
                                            scrollBounds: CGSize(width: 400, height: 800)) == .zero)
         #expect(ZoomMath.doubleTapZoomRect(tapInContent: CGPoint(x: 1, y: 1), targetScale: -1,
                                            scrollBounds: CGSize(width: 400, height: 800)) == .zero)
+    }
+}
+
+// MARK: - Hand-wall invariant
+
+@Suite("ZoomMath hand-wall invariant — no card renders past anchorY")
+struct ZoomMathHandWallInvariantTests {
+    /// Where a content-space point lands in the viewport, given the zoom and
+    /// the clamped offset the delegate writes back. Pure render math.
+    private static func cardViewportY(contentY: CGFloat, zoomScale: CGFloat, clampedOffsetY: CGFloat) -> CGFloat {
+        contentY * zoomScale - clampedOffsetY
+    }
+
+    @Test("Content-bottom card at floor renders exactly at anchor")
+    func contentBottomAtFloorIsAnchor() {
+        let contentH: CGFloat = 1800 * 1.0
+        let clamp = ZoomMath.anchorClamp(contentH: contentH, boundsH: 900, anchorY: 700)
+        let vpY = Self.cardViewportY(contentY: 1800, zoomScale: 1.0, clampedOffsetY: clamp.targetOffsetY)
+        #expect(abs(vpY - 700) < 0.0001)
+    }
+
+    @Test("Tall content renders its bottom exactly at the anchor (no gap)")
+    func largeNominalContentRendersBottomExactlyAtAnchor() {
+        // Content far taller than the anchor: the bottom pins ON the anchor,
+        // never above it — the old pan-up gap is gone regardless of altitude.
+        let contentH: CGFloat = 1800 * 1.0
+        let clamp = ZoomMath.anchorClamp(contentH: contentH, boundsH: 900, anchorY: 700)
+        let vpY = Self.cardViewportY(contentY: 1800, zoomScale: 1.0, clampedOffsetY: clamp.targetOffsetY)
+        #expect(abs(vpY - 700) < 0.0001)
+    }
+
+    @Test("Sweep: every card at every zoom stays at or above the anchor")
+    func sweepNeverCrossesAnchor() {
+        let anchorY: CGFloat = 700
+        let boundsH: CGFloat = 900
+        let contentWorldH: CGFloat = 1800
+        let zooms: [CGFloat] = [0.39, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0]
+        let contentYs: [CGFloat] = stride(from: 0, through: 1800, by: 100).map { CGFloat($0) }
+        for zoom in zooms {
+            let contentH = contentWorldH * zoom
+            let clamp = ZoomMath.anchorClamp(contentH: contentH, boundsH: boundsH, anchorY: anchorY)
+            for contentY in contentYs {
+                let vpY = Self.cardViewportY(contentY: contentY, zoomScale: zoom, clampedOffsetY: clamp.targetOffsetY)
+                #expect(vpY <= anchorY + 0.01, "Wall breach at zoom=\(zoom), contentY=\(contentY): vpY=\(vpY)")
+            }
+        }
+    }
+
+    @Test("iPad shape: wall holds at contain-fit on taller viewport")
+    func iPadShapeHoldsWall() {
+        let anchorY: CGFloat = 1100
+        let boundsH: CGFloat = 1366
+        let contentH: CGFloat = 1800 * 0.76
+        let clamp = ZoomMath.anchorClamp(contentH: contentH, boundsH: boundsH, anchorY: anchorY)
+        let vpY = Self.cardViewportY(contentY: 1800, zoomScale: 0.76, clampedOffsetY: clamp.targetOffsetY)
+        #expect(vpY <= anchorY + 0.01)
     }
 }

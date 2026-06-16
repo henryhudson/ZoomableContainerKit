@@ -122,8 +122,7 @@ extension ZoomableContainer {
             let clamp = ZoomMath.anchorClamp(
                 contentH: contentH,
                 boundsH: boundsH,
-                anchorY: anchorY,
-                currentOffsetY: scrollView.contentOffset.y
+                anchorY: anchorY
             )
             let cur = scrollView.contentInset
             if abs(cur.top - clamp.topInset) > 0.01 || abs(cur.bottom - clamp.bottomInset) > 0.01 {

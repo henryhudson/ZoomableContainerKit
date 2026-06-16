@@ -66,6 +66,8 @@ public struct ZoomableContainer<Content: View>: UIViewRepresentable {
         scrollView.bouncesZoom = config.bouncesZoom
         scrollView.bounces = true
         scrollView.decelerationRate = config.decelerationFast ? .fast : .normal
+        // Pre-layout placeholder: the real fit-zoom floor isn't known until
+        // bounds exist; overwritten in updateUIView / applyInitialZoom.
         scrollView.minimumZoomScale = 0.1
         scrollView.maximumZoomScale = config.maxZoom
         scrollView.backgroundColor = .clear

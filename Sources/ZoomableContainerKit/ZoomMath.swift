@@ -41,13 +41,11 @@ public enum ZoomMath {
         /// shorter than the anchor line, pushing its bottom down to land
         /// on the anchor.
         let topInset: CGFloat
-        /// Padding below the content, sized so UIScrollView's natural max
-        /// scroll permits reaching `offsetYMax` (the upward-pan range).
+        /// Padding below the content so the scroll view's content inset covers
+        /// the area below the anchor line.
         let bottomInset: CGFloat
         /// The clamped `contentOffset.y` to enforce on this frame.
         let targetOffsetY: CGFloat
-        /// True iff content is shorter than the anchor line (pinned at floor).
-        let isPinnedAtFloor: Bool
     }
 
     /// Pure math for the bottom-anchor enforcement. The content's bottom is
@@ -63,8 +61,7 @@ public enum ZoomMath {
     static func anchorClamp(
         contentH: CGFloat,
         boundsH: CGFloat,
-        anchorY: CGFloat,
-        currentOffsetY: CGFloat
+        anchorY: CGFloat
     ) -> AnchorClampResult {
         // Covers the viewport area below the anchor so the scroll view's
         // natural offset range permits the pinned position.
@@ -75,8 +72,7 @@ public enum ZoomMath {
             return AnchorClampResult(
                 topInset: topInset,
                 bottomInset: bottomInset,
-                targetOffsetY: -topInset,
-                isPinnedAtFloor: true
+                targetOffsetY: -topInset
             )
         }
 
@@ -84,8 +80,7 @@ public enum ZoomMath {
         return AnchorClampResult(
             topInset: 0,
             bottomInset: bottomInset,
-            targetOffsetY: contentH - anchorY,
-            isPinnedAtFloor: false
+            targetOffsetY: contentH - anchorY
         )
     }
 

@@ -22,6 +22,7 @@ ZoomableContainer(
     contentSize: CGSize,
     config: ZoomConfig = .init(),   // static knobs
     hooks:  ZoomHooks  = .init(),   // optional @MainActor closures
+    refitKey: AnyHashable? = nil,   // change to re-frame to initialZoom
 ) { /* your SwiftUI content */ }
 ```
 

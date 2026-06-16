@@ -75,6 +75,13 @@ public struct ZoomConfig: Sendable {
 /// Optional host callbacks. Each `nil` (the default) yields the Photos-app
 /// behaviour for that axis. All run on the main actor (UIKit gesture/scroll
 /// callbacks), so closures may touch `@MainActor` host state directly.
+///
+/// Deliberately NOT `Sendable` (unlike its sibling `ZoomConfig`, which is
+/// `Sendable` for free since it holds only value types). `ZoomHooks` carries
+/// `@MainActor` closures and only ever lives inside the `@MainActor`
+/// `UIViewRepresentable`, so it never crosses an isolation boundary — there is
+/// nothing to make `Sendable`. Forcing `@Sendable` closures here would
+/// constrain every caller for no benefit.
 public struct ZoomHooks {
     /// Stable identifier for the interactive element at a *content* point,
     /// or `nil` on empty background. When set, a two-finger touch on two

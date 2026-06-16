@@ -1,0 +1,14 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Xcode
+        run: xcodebuild -version
+      - name: Resolve a simulator
+        id: sim
+        run: echo "id=$(xcrun simctl list devices available --json | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; ids=[v['udid'] for k in d for v in d[k] if v.get('isAvailable') and 'iPhone' in v['name']]; print(ids[0])")" >> "$GITHUB_OUTPUT"
+      - name: Test
+        run: xcodebuild test -scheme ZoomableContainerKit -destination "id=${{ steps.sim.outputs.id }}"
