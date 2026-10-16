@@ -47,8 +47,8 @@ struct ZoomableContainerResizeTests {
     func pinchedPlaceSurvivesATurn() async throws {
         let stage = await Stage(CGSize(width: 400, height: 800), chamber(CGSize(width: 600, height: 1200)))
         let scrollView = try #require(stage.scrollView)
-        scrollView.zoomScale = 1.5
-        scrollView.contentOffset = CGPoint(x: 330 * 1.5 - 200, y: 720 * 1.5 - 400)
+        pinch(scrollView, to: 1.5)
+        drag(scrollView, to: CGPoint(x: 330 * 1.5 - 200, y: 720 * 1.5 - 400))
         await stage.settle()
         let before = try visibleCentre(of: scrollView)
         #expect(abs(before.x - 330) < 0.5)
@@ -68,7 +68,7 @@ struct ZoomableContainerResizeTests {
                                 chamber(CGSize(width: 1000, height: 2000), initialZoom: 1))
         let scrollView = try #require(stage.scrollView)
         // 30 percent across and 60 percent down.
-        scrollView.contentOffset = CGPoint(x: 300 - 200, y: 1200 - 400)
+        drag(scrollView, to: CGPoint(x: 300 - 200, y: 1200 - 400))
         await stage.settle()
 
         await stage.show(chamber(newContent, initialZoom: 1))
@@ -76,6 +76,42 @@ struct ZoomableContainerResizeTests {
         let centre = try visibleCentre(of: scrollView)
         #expect(abs(centre.x - newContent.width * 0.3) < 0.5)
         #expect(abs(centre.y - newContent.height * 0.6) < 0.5)
+    }
+
+    @Test("a chamber first framed on a placeholder layout opens at its starting zoom and the top when the real layout arrives")
+    func placeholderLayoutThenRealOne() async throws {
+        // Members on a cold launch: the people load after the first layout,
+        // so the first framing is on a short empty chamber, which fits the
+        // view only above 1:1.
+        let stage = await Stage(CGSize(width: 402, height: 600),
+                                chamber(CGSize(width: 390, height: 113), initialZoom: 1))
+        let scrollView = try #require(stage.scrollView)
+        #expect(scrollView.zoomScale > 1)
+
+        await stage.show(chamber(CGSize(width: 390, height: 3000), initialZoom: 1))
+        #expect(abs(scrollView.zoomScale - 1) < 0.001)
+        let centre = try visibleCentre(of: scrollView)
+        #expect(abs(centre.x - 195) < 0.5)
+        #expect(abs(centre.y - 300) < 0.5)
+    }
+
+    @Test("a resize in two steps carries the place the user left, not the clamp at the middle step")
+    func twoStepResizeCarriesTheUsersPlace() async throws {
+        let stage = await Stage(CGSize(width: 400, height: 800), chamber(CGSize(width: 600, height: 1200)))
+        let scrollView = try #require(stage.scrollView)
+        pinch(scrollView, to: 2)
+        drag(scrollView, to: CGPoint(x: 180 * 2 - 200, y: 720 * 2 - 400))
+        await stage.settle()
+
+        // The bounds first: the wider view cannot keep 180 in the middle, so
+        // the camera stops at the chamber's left edge. Then the chamber is
+        // laid out larger.
+        await stage.resize(CGSize(width: 800, height: 400))
+        await stage.show(chamber(CGSize(width: 900, height: 1800)))
+        #expect(abs(scrollView.zoomScale - 2) < 0.001)
+        let centre = try visibleCentre(of: scrollView)
+        #expect(abs(centre.x - 270) < 0.5)
+        #expect(abs(centre.y - 1080) < 0.5)
     }
 
     // MARK: Drone camera (Deck's table)
@@ -86,7 +122,7 @@ struct ZoomableContainerResizeTests {
         let stage = await Stage(CGSize(width: 400, height: 800), table(hostedHeight: 2000, refitKey: 0, anchor: anchor))
         let scrollView = try #require(stage.scrollView)
         #expect(abs(scrollView.zoomScale - 1) < 0.001)
-        scrollView.zoomScale = 0.5
+        pinch(scrollView, to: 0.5)
         await stage.settle()
 
         anchor.y = 500
@@ -98,12 +134,53 @@ struct ZoomableContainerResizeTests {
         #expect(abs(corner.y - anchor.y) < 0.5)
     }
 
+    @Test("a table whose hand line is measured after the fold gets back the zoom the user left")
+    func lateHandLineKeepsTheUsersZoom() async throws {
+        let anchor = Anchor(y: 1000)
+        let stage = await Stage(CGSize(width: 500, height: 1200), table(hostedHeight: 2000, refitKey: 0, anchor: anchor))
+        let scrollView = try #require(stage.scrollView)
+        pinch(scrollView, to: 0.5)
+        await stage.settle()
+
+        // The bounds change first, framed against the old hand line, whose
+        // floor of 1000 / 1800 is above the user's zoom. The line is then
+        // measured again, with the taller hosted surface it brings.
+        await stage.resize(CGSize(width: 700, height: 1200))
+        #expect(abs(scrollView.zoomScale - 1000.0 / 1800) < 0.001)
+        anchor.y = 800
+        await stage.show(table(hostedHeight: 2100, refitKey: 0, anchor: anchor))
+        #expect(abs(scrollView.zoomScale - 0.5) < 0.001)
+        let left = try onScreen(CGPoint(x: 0, y: 1800), in: scrollView)
+        let right = try onScreen(CGPoint(x: 1200, y: 1800), in: scrollView)
+        #expect(abs(left.x - (scrollView.bounds.width - right.x)) < 0.5)
+        #expect(abs(right.y - anchor.y) < 0.5)
+    }
+
+    @Test("a table at its floor in a window wider than the table is centred and on the hand line")
+    func narrowTableIsCentred() async throws {
+        // The Duo opened and held wide.
+        let anchor = Anchor(y: 490)
+        let stage = await Stage(CGSize(width: 466, height: 678), table(hostedHeight: 2000, refitKey: 0, anchor: anchor))
+        let scrollView = try #require(stage.scrollView)
+        pinch(scrollView, to: scrollView.minimumZoomScale)
+        await stage.settle()
+
+        anchor.y = 480
+        await stage.resize(CGSize(width: 951, height: 669))
+        await stage.show(table(hostedHeight: 2000, refitKey: 0, anchor: anchor))
+        #expect(abs(scrollView.zoomScale - 480.0 / 1800) < 0.001)
+        let left = try onScreen(CGPoint(x: 0, y: 1800), in: scrollView)
+        let right = try onScreen(CGPoint(x: 1200, y: 1800), in: scrollView)
+        #expect(abs(left.x - (951 - right.x)) < 0.5)
+        #expect(abs(right.y - 480) < 0.5)
+    }
+
     @Test("a new refit key still re-frames the table to its starting zoom")
     func refitKeyStillReframes() async throws {
         let anchor = Anchor(y: 600)
         let stage = await Stage(CGSize(width: 400, height: 800), table(hostedHeight: 2000, refitKey: 0, anchor: anchor))
         let scrollView = try #require(stage.scrollView)
-        scrollView.zoomScale = 0.5
+        pinch(scrollView, to: 0.5)
         await stage.settle()
 
         await stage.show(table(hostedHeight: 2000, refitKey: 1, anchor: anchor))
@@ -180,6 +257,22 @@ private func table(hostedHeight: CGFloat, refitKey: Int, anchor: Anchor) -> some
         Color.green
     }
     .ignoresSafeArea()
+}
+
+/// A pinch as UIKit reports it: the delegate hears that zooming is about to
+/// begin, then the zoom changes.
+@MainActor
+private func pinch(_ scrollView: UIScrollView, to zoom: CGFloat) {
+    scrollView.delegate?.scrollViewWillBeginZooming?(scrollView, with: scrollView.delegate?.viewForZooming?(in: scrollView))
+    scrollView.zoomScale = zoom
+}
+
+/// A drag as UIKit reports it: the delegate hears that dragging is about to
+/// begin, then the offset changes.
+@MainActor
+private func drag(_ scrollView: UIScrollView, to offset: CGPoint) {
+    scrollView.delegate?.scrollViewWillBeginDragging?(scrollView)
+    scrollView.contentOffset = offset
 }
 
 /// The content point at the middle of the view.
