@@ -62,11 +62,21 @@ ZoomableContainer(
 ) { TableView(...) }
 ```
 
+## Resizing
+
+A change of size (an iPhone Duo fold, a turn, a new `hostedContentHeight`, new
+content) keeps the zoom, clamped to the new limits; a camera zoomed all the way
+out stays all the way out. The free-floating camera keeps the same fraction of
+the content in the middle of the view; the drone camera re-runs its
+bottom-right framing. Only a new `refitKey` starts the camera over.
+
 ## Testing
 
-Pure logic (`ZoomMath`: fit-zoom, anchor clamp, pinch veto, double-tap rect) is
-unit-tested. Gesture feel, native-pinch precedence, haptics, and bounce are
-verified on device.
+Pure logic (`ZoomMath`: fit-zoom, anchor clamp, the zoom and place carried
+across a resize, pinch veto, double-tap rect) is unit-tested.
+`ZoomableContainerResizeTests` drives the real scroll view, hosted in a window,
+through resizes in both modes. Gesture feel, native-pinch precedence, haptics,
+bounce, and a real fold are verified on device.
 
 ```
 xcodebuild -scheme ZoomableContainerKit -destination 'platform=iOS Simulator,name=iPhone 17' test
