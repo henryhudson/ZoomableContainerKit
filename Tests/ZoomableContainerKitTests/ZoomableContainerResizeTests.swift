@@ -90,9 +90,12 @@ struct ZoomableContainerResizeTests {
 
         await stage.show(chamber(CGSize(width: 390, height: 3000), initialZoom: 1))
         #expect(abs(scrollView.zoomScale - 1) < 0.001)
+        // The top sits just below the window's top safe area, where a cold
+        // launch puts it: 62 points on an iPhone 16 Pro, none on the Duo.
+        let topInset = scrollView.safeAreaInsets.top
         let centre = try visibleCentre(of: scrollView)
         #expect(abs(centre.x - 195) < 0.5)
-        #expect(abs(centre.y - 300) < 0.5)
+        #expect(abs(centre.y - (300 - topInset)) < 0.5)
     }
 
     @Test("a resize in two steps carries the place the user left, not the clamp at the middle step")
