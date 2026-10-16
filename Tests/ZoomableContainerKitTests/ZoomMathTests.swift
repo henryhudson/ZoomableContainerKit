@@ -217,3 +217,91 @@ struct ZoomMathHandWallInvariantTests {
         #expect(vpY <= anchorY + 0.01)
     }
 }
+
+// MARK: - Keeping place across a resize
+
+@Suite("ZoomMath.carriedCentre")
+struct ZoomMathCarriedCentreTests {
+    @Test("a centre 30 percent across and 60 percent down keeps its fractions as the content grows or shrinks",
+          arguments: [CGSize(width: 1500, height: 3000), CGSize(width: 500, height: 1000), CGSize(width: 1200, height: 900)])
+    func keepsFractions(newContent: CGSize) {
+        let centre = ZoomMath.carriedCentre(CGPoint(x: 300, y: 1200),
+                                            from: CGSize(width: 1000, height: 2000),
+                                            to: newContent)
+        #expect(abs(centre.x / newContent.width - 0.3) < 0.0001)
+        #expect(abs(centre.y / newContent.height - 0.6) < 0.0001)
+    }
+
+    @Test("a centre past the content's edges is clamped inside the new content")
+    func clampedInside() {
+        let centre = ZoomMath.carriedCentre(CGPoint(x: -50, y: 2400),
+                                            from: CGSize(width: 1000, height: 2000),
+                                            to: CGSize(width: 500, height: 1000))
+        #expect(centre == CGPoint(x: 0, y: 1000))
+    }
+
+    @Test("empty old content carries to the middle of the new content")
+    func emptyOldContent() {
+        let centre = ZoomMath.carriedCentre(CGPoint(x: 10, y: 10), from: .zero, to: CGSize(width: 600, height: 400))
+        #expect(centre == CGPoint(x: 300, y: 200))
+    }
+}
+
+@Suite("ZoomMath.carriedZoom")
+struct ZoomMathCarriedZoomTests {
+    @Test("a zoom inside the new limits is kept")
+    func keptInsideLimits() {
+        #expect(ZoomMath.carriedZoom(1.5, oldFloor: 0.4, newFloor: 0.6, ceiling: 5) == 1.5)
+    }
+
+    @Test("a zoom below the new floor rises to it")
+    func risesToNewFloor() {
+        #expect(ZoomMath.carriedZoom(0.5, oldFloor: 0.4, newFloor: 0.6, ceiling: 5) == 0.6)
+    }
+
+    @Test("a zoom above the ceiling falls to it")
+    func fallsToCeiling() {
+        #expect(ZoomMath.carriedZoom(6, oldFloor: 0.4, newFloor: 0.6, ceiling: 5) == 5)
+    }
+
+    @Test("zoomed all the way out stays all the way out, whether the floor rises or falls",
+          arguments: [CGFloat(0.3), CGFloat(0.6)])
+    func atFloorFollowsTheFloor(newFloor: CGFloat) {
+        #expect(ZoomMath.carriedZoom(0.4, oldFloor: 0.4, newFloor: newFloor, ceiling: 5) == newFloor)
+    }
+}
+
+@Suite("ZoomMath.centringOffset")
+struct ZoomMathCentringOffsetTests {
+    @Test("puts the point at the middle of the viewport when the content overfills it")
+    func centresThePoint() {
+        let offset = ZoomMath.centringOffset(on: CGPoint(x: 450, y: 1800), zoom: 1,
+                                             viewport: CGSize(width: 400, height: 800),
+                                             content: CGSize(width: 1500, height: 3000))
+        #expect(offset == CGPoint(x: 250, y: 1400))
+    }
+
+    @Test("works in scaled points at any zoom")
+    func appliesTheZoom() {
+        let offset = ZoomMath.centringOffset(on: CGPoint(x: 450, y: 1800), zoom: 2,
+                                             viewport: CGSize(width: 400, height: 800),
+                                             content: CGSize(width: 1500, height: 3000))
+        #expect(offset == CGPoint(x: 700, y: 3200))
+    }
+
+    @Test("stops at the content's edges rather than showing past them")
+    func staysInsideTheEdges() {
+        let offset = ZoomMath.centringOffset(on: CGPoint(x: 1490, y: 10), zoom: 1,
+                                             viewport: CGSize(width: 400, height: 800),
+                                             content: CGSize(width: 1500, height: 3000))
+        #expect(offset == CGPoint(x: 1100, y: 0))
+    }
+
+    @Test("centres an axis the content does not fill, wherever the point is")
+    func centresAnAxisTheContentDoesNotFill() {
+        let offset = ZoomMath.centringOffset(on: CGPoint(x: 10, y: 1800), zoom: 1,
+                                             viewport: CGSize(width: 400, height: 800),
+                                             content: CGSize(width: 300, height: 3000))
+        #expect(offset == CGPoint(x: -50, y: 1400))
+    }
+}

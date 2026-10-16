@@ -6,8 +6,9 @@
 //  separate so the behaviour is unit-testable without a running scroll
 //  view. Native UIScrollView pinch now owns zoom + focal anchoring, so the
 //  old rubber-band / focal-offset helpers are gone; what remains is the
-//  fit-zoom math, the drone-camera bottom-anchor clamp, the two-finger
-//  pinch veto, and the deterministic double-tap rect.
+//  fit-zoom math, the drone-camera bottom-anchor clamp, the zoom and place
+//  kept across a resize, the two-finger pinch veto, and the deterministic
+//  double-tap rect.
 //
 //  Mostly internal — the apps reach the gesture math only through
 //  `ZoomableContainer`. `fitZoom` is public because hosts legitimately reuse
@@ -82,6 +83,42 @@ public enum ZoomMath {
             bottomInset: bottomInset,
             targetOffsetY: contentH - anchorY
         )
+    }
+
+    // MARK: - Keeping place across a resize
+
+    /// The content point at the middle of the viewport, carried to content
+    /// of a new size (a fold re-lays the chamber out): it keeps its fraction
+    /// of the content along each axis, clamped inside the new content.
+    static func carriedCentre(_ centre: CGPoint, from old: CGSize, to new: CGSize) -> CGPoint {
+        func carry(_ value: CGFloat, _ old: CGFloat, _ new: CGFloat) -> CGFloat {
+            guard old > 0 else { return new / 2 }
+            return Swift.min(Swift.max(value / old * new, 0), new)
+        }
+        return CGPoint(x: carry(centre.x, old.width, new.width),
+                       y: carry(centre.y, old.height, new.height))
+    }
+
+    /// The zoom to keep across a resize: the same zoom, clamped to the new
+    /// limits, except that a camera zoomed all the way out stays all the way
+    /// out, so a whole-chamber or whole-table view survives a fold.
+    static func carriedZoom(_ zoom: CGFloat, oldFloor: CGFloat, newFloor: CGFloat, ceiling: CGFloat) -> CGFloat {
+        let wasAtFloor = zoom <= oldFloor + 0.0001
+        return Swift.min(ceiling, Swift.max(newFloor, wasAtFloor ? newFloor : zoom))
+    }
+
+    /// The content offset that puts content point `centre` at the middle of
+    /// `viewport` at `zoom`, within the free-floating camera's scroll range:
+    /// an axis the scaled content does not fill is centred whatever the
+    /// point, and an axis it overfills stops at the content's edges.
+    static func centringOffset(on centre: CGPoint, zoom: CGFloat, viewport: CGSize, content: CGSize) -> CGPoint {
+        func offset(_ point: CGFloat, _ viewport: CGFloat, _ content: CGFloat) -> CGFloat {
+            let scaled = content * zoom
+            guard scaled > viewport else { return (scaled - viewport) / 2 }
+            return Swift.min(Swift.max(point * zoom - viewport / 2, 0), scaled - viewport)
+        }
+        return CGPoint(x: offset(centre.x, viewport.width, content.width),
+                       y: offset(centre.y, viewport.height, content.height))
     }
 
     // MARK: - Pinch veto
