@@ -8,7 +8,7 @@
 //    - Consult `builtInPinchShouldBegin` before the built-in pinch begins
 //      (two fingers on two different elements ⇒ two drags, not a zoom).
 //    - Consult `hitTestBypass` to fall through to chrome beneath.
-//    - Fire `onLayout` after every layout pass with non-zero bounds —
+//    - Fire `onLayout` after every layout pass with non-zero bounds:
 //      `updateUIView` can fire once with `.zero` bounds and not re-fire,
 //      and does not fire at all on a size-only change (a fold, a turn), so
 //      the initial zoom and the re-framing after a resize need this trigger.

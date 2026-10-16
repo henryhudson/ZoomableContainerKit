@@ -65,10 +65,20 @@ ZoomableContainer(
 ## Resizing
 
 A change of size (an iPhone Duo fold, a turn, a new `hostedContentHeight`, new
-content) keeps the zoom, clamped to the new limits; a camera zoomed all the way
-out stays all the way out. The free-floating camera keeps the same fraction of
-the content in the middle of the view; the drone camera re-runs its
-bottom-right framing. Only a new `refitKey` starts the camera over.
+content) frames a camera the user has not moved afresh, as on its first layout,
+so a first framing on a placeholder layout does not stick. A camera the user has
+moved keeps its zoom, clamped to the new limits; a camera zoomed all the way out
+stays all the way out. The free-floating camera keeps the same fraction of the
+content in the middle of the view; the drone camera re-runs its bottom-right
+framing. A resize that arrives in steps (the bounds, then the content or the
+anchor) carries the place the user left at every step, not the clamp of the step
+before. Only a new `refitKey` starts a moved camera over.
+
+A fraction of the content is the same place only while the layout keeps its
+shape. A host whose layout transposes, running across in a wide window and down
+in a tall one, must change `refitKey` when it transposes (for example
+`refitKey: isLandscape`), so a turn starts the camera over rather than landing
+on a different part of the content at the old zoom.
 
 ## Testing
 
