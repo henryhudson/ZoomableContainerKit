@@ -8,9 +8,10 @@
 //    - Consult `builtInPinchShouldBegin` before the built-in pinch begins
 //      (two fingers on two different elements ⇒ two drags, not a zoom).
 //    - Consult `hitTestBypass` to fall through to chrome beneath.
-//    - Fire `onFirstValidLayout` once, when bounds first become non-zero —
+//    - Fire `onLayout` after every layout pass with non-zero bounds:
 //      `updateUIView` can fire once with `.zero` bounds and not re-fire,
-//      so the initial-zoom pass needs its own trigger.
+//      and does not fire at all on a size-only change (a fold, a turn), so
+//      the initial zoom and the re-framing after a resize need this trigger.
 //
 
 import UIKit
@@ -22,15 +23,11 @@ final class VetoingScrollView: UIScrollView {
     /// container wires this to the coordinator's veto so a two-cards touch
     /// suppresses zoom as well as the tap-cancel arbitrator.
     var builtInPinchShouldBegin: (@MainActor (UIPinchGestureRecognizer) -> Bool)?
-    var onFirstValidLayout: (() -> Void)?
-    private var hasFiredFirstLayout = false
+    var onLayout: (() -> Void)?
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if !hasFiredFirstLayout, bounds.width > 0, bounds.height > 0 {
-            hasFiredFirstLayout = true
-            onFirstValidLayout?()
-        }
+        if bounds.width > 0, bounds.height > 0 { onLayout?() }
     }
 
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {

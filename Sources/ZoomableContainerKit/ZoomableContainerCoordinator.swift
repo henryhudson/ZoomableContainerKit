@@ -13,6 +13,13 @@
 //    - drone camera (set):  centre horizontally; pin the content's bottom
 //      to the anchor line vertically every tick.
 //
+//  A change of size (an iPhone Duo fold, a turn, a re-measured hand line,
+//  a re-laid-out chamber) frames a camera the user has not moved afresh.
+//  A moved camera keeps the zoom, clamped to the new limits, and the
+//  place: the free-floating camera keeps the same fraction of the content
+//  in the middle of the view; the drone camera re-runs its bottom-right
+//  framing.
+//
 
 import SwiftUI
 import UIKit
@@ -40,9 +47,49 @@ extension ZoomableContainer {
         /// frame, which may be taller via `hostedContentHeight`.
         var contentWorldSize: CGSize = .zero
 
+        /// Hosted-view size: `contentWorldSize` width, height overridden when
+        /// `config.hostedContentHeight` is set (taller hittable surface).
+        var hostedSize: CGSize {
+            CGSize(width: contentWorldSize.width, height: config.hostedContentHeight ?? contentWorldSize.height)
+        }
+
         // Canonical (non-bounced) zoom limits, kept in sync.
         var realMinZoom: CGFloat = 0
         var realMaxZoom: CGFloat = 1
+
+        /// The sizes the camera was last framed for. When any of them
+        /// changes, the camera is re-framed rather than started over.
+        struct Framing: Equatable {
+            var bounds: CGSize
+            var hostedSize: CGSize
+            var worldSize: CGSize
+        }
+        private var framing: Framing?
+
+        /// What a resize does with the camera.
+        enum Camera {
+            /// As its first framing left it: a resize frames it afresh, so
+            /// a first framing on a placeholder layout does not stick.
+            case framed
+            /// Moved by the user: `place` follows the view.
+            case moved
+            /// Re-framed after a resize the user has not moved since:
+            /// `place` holds what the user left, so a clamp at a middle
+            /// step of a resize (the bounds first, the content or the hand
+            /// line after) does not overwrite it.
+            case carried
+        }
+        private var camera = Camera.framed
+
+        /// The zoom, the floor it was measured against, and the content
+        /// point in the middle of the view, in the world it was measured in.
+        struct Place {
+            var zoom: CGFloat
+            var floor: CGFloat
+            var centre: CGPoint
+            var world: CGSize
+        }
+        private var place = Place(zoom: 1, floor: 0, centre: .zero, world: .zero)
 
         private var hasPulsedAtLimit = false
         private lazy var limitHaptic = UIImpactFeedbackGenerator(style: .soft)
@@ -54,6 +101,7 @@ extension ZoomableContainer {
         public func scrollViewDidZoom(_ scrollView: UIScrollView) {
             applyLayout(in: scrollView)
             fireLimitHaptic(in: scrollView)
+            notePlace(in: scrollView)
             hooks.onTransformChange?(scrollView.zoomScale, scrollView.contentOffset)
         }
 
@@ -61,7 +109,19 @@ extension ZoomableContainer {
             // Only the drone camera re-clamps on pan; free-floating centring
             // doesn't change as the user scrolls within the inset bounds.
             if hooks.bottomAnchorY != nil { enforceBottomAnchor(in: scrollView) }
+            notePlace(in: scrollView)
             hooks.onTransformChange?(scrollView.zoomScale, scrollView.contentOffset)
+        }
+
+        // UIKit sends these when the user starts a drag or a pinch, and
+        // before an animated zoom, which here only the double tap makes;
+        // not when code sets the zoom or offset without animation.
+        public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            camera = .moved
+        }
+
+        public func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
+            camera = .moved
         }
 
         // MARK: Layout
@@ -81,7 +141,9 @@ extension ZoomableContainer {
         /// guard stops sub-pixel inset noise from re-laying-out every tick.
         func centerContent(in scrollView: UIScrollView) {
             let bounds = scrollView.bounds.size
-            let content = scrollView.contentSize
+            // The world, not `contentSize`: UIKit keeps that already scaled
+            // by the zoom, so scaling it again mis-centres at any zoom but 1.
+            let content = contentWorldSize
             let scale = scrollView.zoomScale
             let insetX = max(0, (bounds.width - content.width * scale) / 2)
             let insetY = max(0, (bounds.height - content.height * scale) / 2)
@@ -96,7 +158,7 @@ extension ZoomableContainer {
         /// keeps the two writers from racing on `contentInset`.
         func centerHorizontally(in scrollView: UIScrollView) {
             let bounds = scrollView.bounds.size
-            let content = scrollView.contentSize
+            let content = contentWorldSize
             let scale = scrollView.zoomScale
             let insetX = max(0, (bounds.width - content.width * scale) / 2)
             let cur = scrollView.contentInset
@@ -135,6 +197,70 @@ extension ZoomableContainer {
             }
         }
 
+        // MARK: Settling
+
+        /// Brings the camera up to date: from `updateUIView` on every
+        /// update, and from the scroll view's layout, since a size-only
+        /// change (a fold, a turn) re-lays the view out without one.
+        func settle(in scrollView: UIScrollView) {
+            resizeHostedView(in: scrollView)
+            let bounds = scrollView.bounds.size
+            guard bounds.width > 0, bounds.height > 0 else { return }
+            if !hasSetInitialZoom {
+                applyInitialZoom(in: scrollView)
+            } else if framing != currentFraming(of: scrollView) {
+                if camera == .framed {
+                    hasSetInitialZoom = false
+                    applyInitialZoom(in: scrollView)
+                } else {
+                    reframe(in: scrollView)
+                }
+            } else {
+                syncZoomLimits(in: scrollView)
+                applyLayout(in: scrollView)
+            }
+        }
+
+        /// Layout runs on every scroll, so settle only when there is work.
+        func didLayout(_ scrollView: UIScrollView) {
+            guard !hasSetInitialZoom || framing != currentFraming(of: scrollView) else { return }
+            settle(in: scrollView)
+        }
+
+        /// Resizes the hosted view in place. Its frame is undefined under
+        /// the zoom transform, so bounds and centre are written instead.
+        /// The zoom is not set to 1 first: the setter clamps to the zoom
+        /// limits, so it would not reach 1 under a floor above 1.
+        private func resizeHostedView(in scrollView: UIScrollView) {
+            guard let hostedView, hostedView.bounds.size != hostedSize else { return }
+            let zoom = scrollView.zoomScale
+            hostedView.bounds = CGRect(origin: .zero, size: hostedSize)
+            hostedView.center = CGPoint(x: hostedSize.width * zoom / 2, y: hostedSize.height * zoom / 2)
+            scrollView.contentSize = CGSize(width: hostedSize.width * zoom, height: hostedSize.height * zoom)
+        }
+
+        /// Syncs the limits to the view: the floor is the zoom at which
+        /// the world fits the play area, or the caller's floor if higher.
+        @discardableResult
+        private func syncZoomLimits(in scrollView: UIScrollView) -> CGFloat {
+            let playArea = CGSize(width: scrollView.bounds.width, height: playAreaHeight(in: scrollView))
+            let effectiveMin = max(config.minZoom, ZoomMath.fitZoom(content: contentWorldSize, viewport: playArea))
+            scrollView.minimumZoomScale = effectiveMin
+            scrollView.maximumZoomScale = config.maxZoom
+            realMinZoom = effectiveMin
+            realMaxZoom = config.maxZoom
+            return effectiveMin
+        }
+
+        /// Drone: down to the anchor line. Free-floating: the whole view.
+        private func playAreaHeight(in scrollView: UIScrollView) -> CGFloat {
+            if let provider = hooks.bottomAnchorY {
+                let v = provider()
+                if v > 0 { return v }
+            }
+            return scrollView.bounds.height
+        }
+
         // MARK: Initial zoom
 
         /// One-shot: configure fit-zoom + limits + the starting altitude.
@@ -144,27 +270,13 @@ extension ZoomableContainer {
             guard !hasSetInitialZoom else { return }
             let bounds = scrollView.bounds.size
             guard bounds.width > 0, bounds.height > 0 else { return }
-            let content = contentWorldSize
-            guard content.width > 0, content.height > 0 else { return }
+            guard contentWorldSize.width > 0, contentWorldSize.height > 0 else { return }
 
-            let playAreaH: CGFloat = {
-                if let provider = hooks.bottomAnchorY {
-                    let v = provider()
-                    if v > 0 { return v }
-                }
-                return bounds.height
-            }()
-            let fit = ZoomMath.fitZoom(content: content, viewport: CGSize(width: bounds.width, height: playAreaH))
-            let effectiveMin = max(config.minZoom, fit)
+            let effectiveMin = syncZoomLimits(in: scrollView)
             let initial: CGFloat = {
                 if let iz = config.initialZoom { return min(config.maxZoom, max(effectiveMin, iz)) }
                 return effectiveMin   // nil ⇒ start at fit (free-floating)
             }()
-
-            scrollView.minimumZoomScale = effectiveMin
-            scrollView.maximumZoomScale = config.maxZoom
-            realMinZoom = effectiveMin
-            realMaxZoom = config.maxZoom
             scrollView.zoomScale = initial
             hasSetInitialZoom = true
 
@@ -172,12 +284,62 @@ extension ZoomableContainer {
 
             // Drone only: frame the start on the world's bottom-right corner
             // (where freshly dealt cards land). Free-floating stays centred.
+            if hooks.bottomAnchorY != nil { frameBottomRight(in: scrollView) }
+            camera = .framed
+            didFrame(in: scrollView)
+        }
+
+        // MARK: Re-framing after a resize
+
+        /// Carries the place the user left to the new size: the zoom,
+        /// clamped to the new limits, and the content in the middle. A
+        /// camera zoomed all the way out stays all the way out.
+        private func reframe(in scrollView: UIScrollView) {
+            let newFloor = syncZoomLimits(in: scrollView)
+            let carried = ZoomMath.carriedZoom(place.zoom, oldFloor: place.floor, newFloor: newFloor, ceiling: config.maxZoom)
+            if scrollView.zoomScale != carried { scrollView.zoomScale = carried }
+            applyLayout(in: scrollView)
+
             if hooks.bottomAnchorY != nil {
-                let scaledW = content.width * initial
-                if scaledW > bounds.width { scrollView.contentOffset.x = scaledW - bounds.width }
-                enforceBottomAnchor(in: scrollView)
+                frameBottomRight(in: scrollView)
+            } else {
+                let centre = ZoomMath.carriedCentre(place.centre, from: place.world, to: contentWorldSize)
+                scrollView.contentOffset = ZoomMath.centringOffset(
+                    on: centre, zoom: carried, viewport: scrollView.bounds.size, content: contentWorldSize
+                )
             }
+            camera = .carried
+            didFrame(in: scrollView)
+        }
+
+        /// Drone: frame the world's bottom-right corner. A world narrower
+        /// than the view sits in the middle, where its insets centre it.
+        private func frameBottomRight(in scrollView: UIScrollView) {
+            let scaledW = contentWorldSize.width * scrollView.zoomScale
+            let width = scrollView.bounds.width
+            scrollView.contentOffset.x = scaledW > width ? scaledW - width : (scaledW - width) / 2
+            enforceBottomAnchor(in: scrollView)
+        }
+
+        private func didFrame(in scrollView: UIScrollView) {
+            framing = currentFraming(of: scrollView)
+            notePlace(in: scrollView)
             hooks.onTransformChange?(scrollView.zoomScale, scrollView.contentOffset)
+        }
+
+        private func currentFraming(of scrollView: UIScrollView) -> Framing {
+            Framing(bounds: scrollView.bounds.size, hostedSize: hostedSize, worldSize: contentWorldSize)
+        }
+
+        /// Skipped while a carried place is held, and mid-resize, while the
+        /// view no longer matches its framing: the middle of the view is not
+        /// yet back on the right content.
+        private func notePlace(in scrollView: UIScrollView) {
+            guard camera != .carried, let hostedView,
+                  framing == currentFraming(of: scrollView) else { return }
+            let middle = CGPoint(x: scrollView.bounds.midX, y: scrollView.bounds.midY)
+            place = Place(zoom: scrollView.zoomScale, floor: realMinZoom,
+                          centre: scrollView.convert(middle, to: hostedView), world: contentWorldSize)
         }
 
         // MARK: Haptic
@@ -216,6 +378,7 @@ extension ZoomableContainer {
         @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
             guard let scrollView = gesture.view as? UIScrollView,
                   let content = hostedView else { return }
+            camera = .moved
             if scrollView.zoomScale > realMinZoom * 1.1 {
                 scrollView.setZoomScale(realMinZoom, animated: true)
                 return

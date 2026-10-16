@@ -43,10 +43,11 @@ public struct ZoomConfig: Sendable {
     /// Optional override for the HOSTED VIEW's height, decoupled from
     /// `contentSize`. When set LARGER than `contentSize.height`, the hosted
     /// SwiftUI surface extends below the content world (so content drawn
-    /// below `contentSize.height` stays hittable) while fit-zoom,
-    /// `scrollView.contentSize`, and the bottom anchor keep referencing
-    /// `contentSize.height`. `nil` (default) sizes the hosted view exactly
-    /// to `contentSize`.
+    /// below `contentSize.height` stays hittable) while fit-zoom and the
+    /// bottom anchor keep referencing `contentSize.height`. The scroll
+    /// view's own `contentSize` follows the hosted view, scaled by the
+    /// zoom, once it is zoomed or resized. `nil` (default) sizes the hosted
+    /// view exactly to `contentSize`.
     public var hostedContentHeight: CGFloat?
 
     public init(

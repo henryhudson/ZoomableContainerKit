@@ -50,12 +50,6 @@ public struct ZoomableContainer<Content: View>: UIViewRepresentable {
         self.content = content
     }
 
-    /// Hosted-view size: `contentSize` width, height overridden when
-    /// `config.hostedContentHeight` is set (taller hittable surface).
-    private var hostedSize: CGSize {
-        CGSize(width: contentSize.width, height: config.hostedContentHeight ?? contentSize.height)
-    }
-
     public func makeCoordinator() -> Coordinator { Coordinator() }
 
     public func makeUIView(context: Context) -> UIScrollView {
@@ -111,24 +105,25 @@ public struct ZoomableContainer<Content: View>: UIViewRepresentable {
             scrollView.addGestureRecognizer(doubleTap)
         }
 
+        sync(context.coordinator)
+
         // View-only hosting adapter — no addChild, so no double appearance
         // callbacks. The hosted tree reads SwiftUI environment from its
         // SwiftUI parent, not the UIKit responder chain.
         let hosting = UIHostingController(rootView: content())
         hosting.view.backgroundColor = .clear
-        hosting.view.frame = CGRect(origin: .zero, size: hostedSize)
+        hosting.view.frame = CGRect(origin: .zero, size: context.coordinator.hostedSize)
         scrollView.addSubview(hosting.view)
         scrollView.contentSize = contentSize
         context.coordinator.hostedView = hosting.view
         context.coordinator.hostingController = hosting
 
-        sync(context.coordinator)
         context.coordinator.seenRefitKey = refitKey
         context.coordinator.hasSeenRefitKey = true
 
-        scrollView.onFirstValidLayout = { [weak scrollView, weak coordinator = context.coordinator] in
+        scrollView.onLayout = { [weak scrollView, weak coordinator = context.coordinator] in
             guard let scrollView, let coordinator else { return }
-            coordinator.applyInitialZoom(in: scrollView)
+            coordinator.didLayout(scrollView)
         }
         return scrollView
     }
@@ -141,16 +136,6 @@ public struct ZoomableContainer<Content: View>: UIViewRepresentable {
             vetoing.hitTestBypass = hooks.hitTestBypass
         }
 
-        // Resize when the hosted size changes. Compare against bounds.size,
-        // NOT frame.size — the zoom transform inflates frame.size by
-        // zoomScale and would trip a false reset loop every tick.
-        let currentSize = context.coordinator.hostedView?.bounds.size ?? .zero
-        if currentSize != hostedSize {
-            context.coordinator.hostedView?.frame = CGRect(origin: .zero, size: hostedSize)
-            scrollView.contentSize = contentSize
-            context.coordinator.hasSetInitialZoom = false
-        }
-
         // Re-fit on a refitKey transition (after the makeUIView seed), unless
         // a pinch is in flight — never yank the user's zoom mid-gesture.
         if context.coordinator.hasSeenRefitKey,
@@ -160,25 +145,9 @@ public struct ZoomableContainer<Content: View>: UIViewRepresentable {
             context.coordinator.hasSetInitialZoom = false
         }
 
-        let bounds = scrollView.bounds.size
-        guard bounds.width > 0, bounds.height > 0 else { return }
-
-        // Keep canonical limits synced (mirror applyInitialZoom's fit math).
-        let playAreaH: CGFloat = {
-            if let provider = hooks.bottomAnchorY {
-                let v = provider()
-                if v > 0 { return v }
-            }
-            return bounds.height
-        }()
-        let fit = ZoomMath.fitZoom(content: contentSize, viewport: CGSize(width: bounds.width, height: playAreaH))
-        let effectiveMin = max(config.minZoom, fit)
-        scrollView.minimumZoomScale = effectiveMin
-        scrollView.maximumZoomScale = config.maxZoom
-        context.coordinator.realMinZoom = effectiveMin
-        context.coordinator.realMaxZoom = config.maxZoom
-
-        context.coordinator.applyInitialZoom(in: scrollView)
+        // A change of size alone (the hosted height, the content, the
+        // bounds) keeps the zoom and place rather than starting over.
+        context.coordinator.settle(in: scrollView)
     }
 
     private func sync(_ coordinator: Coordinator) {
