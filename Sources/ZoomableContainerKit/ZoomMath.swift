@@ -111,6 +111,7 @@ public enum ZoomMath {
     /// `viewport` at `zoom`, within the free-floating camera's scroll range:
     /// an axis the scaled content does not fill is centred whatever the
     /// point, and an axis it overfills stops at the content's edges.
+    /// It ignores the safe-area part of `adjustedContentInset`.
     static func centringOffset(on centre: CGPoint, zoom: CGFloat, viewport: CGSize, content: CGSize) -> CGPoint {
         func offset(_ point: CGFloat, _ viewport: CGFloat, _ content: CGFloat) -> CGFloat {
             let scaled = content * zoom
